@@ -1,0 +1,19 @@
+modules:
+  confluence:spacePage:
+    - key: hello-world-confluence-hello-world-space-page
+      resource: main
+      resolver:
+        function: resolver
+      render: native
+      title: hello-world-confluence
+      route: hello-world
+  function:
+    - key: resolver
+      handler: index.handler
+resources:
+  - key: main
+    path: src/frontend/index.jsx
+app:
+  runtime:
+    name: nodejs22.x
+  id: ari:cloud:ecosystem::app/57e1cebc-405c-4faa-a3e6-b05d302cea8c
