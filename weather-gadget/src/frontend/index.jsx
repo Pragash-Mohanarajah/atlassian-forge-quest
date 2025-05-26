@@ -95,7 +95,7 @@ export const Edit = () => {
         />
       </FormSection>
       <FormFooter>
-        {showOptions && <Button appearance="primary" type="submit" onClick={handleSubmit(configureGadget)}>
+        {showOptions && <Button appearance="primary" type="submit">
           Submit
         </Button>}
       </FormFooter>
@@ -106,19 +106,56 @@ export const Edit = () => {
 
 const View = () => {
   const [weather, setWeather] = useState(null);
+  const [isConfigured, setIsConfigured] = useState(false);
+  const [initialConfigName, setInitialConfigName] = useState('');
   const context = useProductContext();
 
   useEffect(() => {
-    invoke('getCurrentWeather').then(setWeather);
-  }, []);
+    if (context && context.extension) {
+      const config = context.extension.gadgetConfiguration;
+      // Check if essential configuration properties exist
+      if (config && typeof config.lat !== 'undefined' && typeof config.lon !== 'undefined' && config.units) {
+        setIsConfigured(true);
+        if (config.name) {
+          setInitialConfigName(config.name); // Store city name from config
+        }
+        invoke('getCurrentWeather').then(setWeather);
+      } else {
+        setIsConfigured(false);
+      }
+    }
+  }, [context]); // Rerun effect if context changes
 
   const containerStyle = xcss({
     padding: 'space.200'
   });
 
+  const promptContainerStyle = xcss({
+    padding: 'space.400',
+    textAlign: 'center',
+    display: 'flex',
+    flexDirection: 'column',
+    alignItems: 'center',
+    gap: 'space.200', // For spacing between text and button
+  });
+
+  if (!context) {
+    return <Text>Loading context...</Text>; // Handles case where context is not yet available
+  }
+
+  if (!isConfigured) {
+    return (
+      <Box xcss={promptContainerStyle}>
+        <Text>Please configure the Weather Gadget to select a location and view weather information.</Text>
+      </Box>
+    );
+  }
+
+  const headingText = weather ? weather.name : (initialConfigName || 'Loading...');
+
   return (
     <>
-      <Heading as="h2">{weather ? weather.name : 'Loading...'} Weather</Heading>
+      <Heading as="h2">{headingText} Weather</Heading>
       <Box xcss={containerStyle}>
         <Inline>
           <Image src={weather ? (`https://openweathermap.org/img/wn/${weather.weather[0].icon}@2x.png`) : "https://openweathermap.org/img/wn/01d@2x.png"} alt={weather ? weather.weather[0].description : "Loading"} />
