@@ -17,3 +17,6 @@ app:
   runtime:
     name: nodejs22.x
   id: ari:cloud:ecosystem::app/57e1cebc-405c-4faa-a3e6-b05d302cea8c
+permissions:
+  scopes:
+    - read:user:confluence
