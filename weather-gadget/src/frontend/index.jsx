@@ -1,4 +1,4 @@
-import React, {useEffect, useState} from "react";
+import React, {useEffect, useState, useRef} from "react";
 import ForgeReconciler, {
   Text,
   useProductContext,
@@ -21,7 +21,12 @@ import ForgeReconciler, {
 } from "@forge/react";
 import { invoke, view } from "@forge/bridge";
 
-let currentCC = null;
+// Moved outside the component as it's a pure utility function
+// and renamed for clarity.
+const formatLocationAsOption = (location, index) => ({
+  label: `${location.name}, ${location.state}, ${location.country}`,
+  value: String(index), // Ensure value is a string for RadioGroup compatibility
+});
 
 export const Edit = () => {
   const { handleSubmit, register, getValues, formState } = useForm();
@@ -30,72 +35,130 @@ export const Edit = () => {
   const [showOptions, setShowOptions] = useState(false);
   const { errors } = formState;
 
-  const updateCanSearch = () => {
-    const values = getValues();
-    setCanSearch(values.city && values.country);
+  // Use useRef to store the last successfully searched query
+  const lastSearchedQueryRef = useRef({ city: null, country: null });
+
+  // Get RHF's onChange handlers and other props from register
+  const { onChange: rhfCityOnChange, ...cityRegisterProps } = register("city", { required: true });
+  const { onChange: rhfCountryOnChange, ...countryRegisterProps } = register("country", { required: true });
+
+  // This function will be called by Textfield's onChange.
+  // It ensures RHF's internal state is updated for the specific field
+  // before checking all values to update the canSearch state.
+  const handleInputChangeAndUpdateCanSearch = (rhfSpecificOnChange, eventOrValue) => {
+    rhfSpecificOnChange(eventOrValue); // Call RHF's onChange for the specific field FIRST
+    // Now that RHF's state for the changed field is updated, get all values
+    const currentValues = getValues();
+    setCanSearch(!!(currentValues.city && currentValues.country));
   };
 
   const getOptions = () => {
-    const values = getValues();
+    const formValues = getValues(); // Get current form values for city and country
 
-    if (values.city && values.country){
-      if (currentCC && (currentCC.city == values.city)&&(currentCC.country == values.country)) {
-      } else {
-        currentCC = { 
-          city: values.city, 
-          country: values.country
-        }
-      
-        invoke('getLocationCoordinates', {location: values}).then((val) => { 
-          setLocationOptions(val);
-          setShowOptions(true);
-        });
+    if (formValues.city && formValues.country) {
+      // If the current city and country are the same as the last successful search,
+      // and we already have options, just ensure they are shown.
+      if (
+        lastSearchedQueryRef.current.city === formValues.city &&
+        lastSearchedQueryRef.current.country === formValues.country &&
+        locationOptions // Check if options are already populated
+      ) {
+        setShowOptions(true);
+        return;
       }
+
+      // New search or inputs changed, proceed to fetch
+      invoke('getLocationCoordinates', { location: formValues })
+        .then((apiResult) => {
+          const newOptions = Array.isArray(apiResult) ? apiResult : [];
+          setLocationOptions(newOptions);
+          setShowOptions(true);
+          // Update the ref to remember this search query on success
+          lastSearchedQueryRef.current = { city: formValues.city, country: formValues.country };
+        })
+        .catch(error => {
+          console.error("Error fetching location coordinates:", error);
+          setLocationOptions([]); // Clear options on error
+          setShowOptions(true); // Still show the section, perhaps with a "no results" message
+          // Reset last searched query on error to allow retrying the same query
+          lastSearchedQueryRef.current = { city: null, country: null };
+        });
     }
   };
 
   const configureGadget = (data) => {
-    view.submit({
-      ...locationOptions[data.location],
-      units: data.units,
-    });
+    // data.location will be a string (e.g., "0", "1"), parse it to an integer
+    const locationIndex = parseInt(data.location, 10);
+
+    if (
+      locationOptions &&
+      !isNaN(locationIndex) && // Check if parsing was successful
+      locationOptions[locationIndex] !== undefined
+    ) {
+      view.submit({
+        ...locationOptions[locationIndex],
+        units: data.units,
+      });
+    } else {
+      console.error("Cannot submit, location data is invalid or not selected.");
+      // Optionally, provide feedback to the user
+    }
   };
 
-  function locationOption(obj, index, array) {
-    return { name: "location", label: obj.name + ", " + obj.state + ", " + obj.country, value: index }
-  }
+  const fieldGroupStyle = xcss({ marginBottom: 'space.200' });
 
   return (
     <>
     <Form onSubmit={handleSubmit(configureGadget)}>
       <FormSection>
         <Label>City<RequiredAsterisk /></Label>
-        <Textfield {...register("city", { required: true })} onChange={updateCanSearch} />
-        <Label>Country<RequiredAsterisk /></Label>
-        <Textfield {...register("country", { required: true })} onChange={updateCanSearch} />
-        {canSearch && (
-          <Button appearance="secondary" onClick={getOptions}>
-            Search
-          </Button>
-        )}
-        {showOptions && (
-          <>
-            <Label>Select your location<RequiredAsterisk /></Label>
-            <RadioGroup {...register("location", {required: true})} options={locationOptions.map(locationOption)}/>
-            {errors["location"] && <ErrorMessage>Select a location</ErrorMessage>}
-          </>
-        )}
-        <Label>Units</Label>
-        <RadioGroup
-          {...register("units", { required: true })}
-          options={[
-            { name: "units", label: "Metric (°C, m/s)", value: "metric" },
-            { name: "units", label: "Imperial (°F, mph)", value: "imperial" },
-          ]}
+        <Textfield
+          label="City" // Accessibility: provide a label prop if Textfield supports it, or ensure Label is correctly associated
+          hideLabel={true} // If the visual label is handled by <Label>
+          {...cityRegisterProps} // Spread other props from register (name, onBlur, id, etc.)
+          onChange={(e) => handleInputChangeAndUpdateCanSearch(rhfCityOnChange, e)}
         />
+        <Label>Country<RequiredAsterisk /></Label>
+        <Textfield
+          label="Country" // Accessibility
+          hideLabel={true}
+          {...countryRegisterProps} // Spread other props from register
+          onChange={(e) => handleInputChangeAndUpdateCanSearch(rhfCountryOnChange, e)}
+        />
+        {canSearch && (
+          <Box xcss={fieldGroupStyle}> {/* Added Box for spacing if needed around button */}
+            <Button appearance="secondary" onClick={getOptions}>
+              Search
+            </Button>
+          </Box>
+        )}
+        {/* Ensure locationOptions is not null before trying to map it */}
+        {showOptions && locationOptions && (
+          <Box xcss={fieldGroupStyle}>
+            <Label>Select your location<RequiredAsterisk /></Label>
+            <RadioGroup
+              {...register("location", { required: true })}
+              options={locationOptions.map(formatLocationAsOption)} // Use the new formatter
+            />
+            {locationOptions.length === 0 && <Text>No locations found for your search.</Text>}
+            {errors["location"] && <ErrorMessage>Select a location</ErrorMessage>}
+          </Box>
+        )}
+        <Box xcss={fieldGroupStyle}>
+          <Label>Units<RequiredAsterisk /></Label>
+          <RadioGroup
+            {...register("units", { required: true })}
+            options={[
+              // Removed redundant 'name' property from individual options
+              { label: "Metric (°C, m/s)", value: "metric" },
+              { label: "Imperial (°F, mph)", value: "imperial" },
+            ]}
+          />
+          {errors["units"] && <ErrorMessage>Select units</ErrorMessage>}
+        </Box>
       </FormSection>
       <FormFooter>
-        {showOptions && <Button appearance="primary" type="submit">
+        {showOptions && locationOptions && locationOptions.length > 0 && <Button appearance="primary" type="submit">
           Submit
         </Button>}
       </FormFooter>
