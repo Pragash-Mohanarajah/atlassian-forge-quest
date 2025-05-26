@@ -28,4 +28,22 @@ resolver.define('getLocationCoordinates', async (req) => {
   }
 });
 
+resolver.define('getCurrentWeather', async (req) => {
+
+  if (req.context.extension.gadgetConfiguration) {
+    const coord = req.context.extension.gadgetConfiguration;
+    const url = "https://api.openweathermap.org/data/2.5/weather?lat=" + coord.lat + "&lon=" + coord.lon +"&units=metric&appid=" + process.env.OPENWEATHER_KEY;
+    const response = await fetch(url)
+    if (!response.ok) {
+      const errmsg = `Error from Open Weather Map Current Weather API: ${response.status} ${await response.text()}`;
+      console.error(errmsg)
+      throw new Error(errmsg)
+    }
+    const weather = await response.json()
+    return weather;
+  } else {
+    return null;
+  }  
+});
+
 export const handler = resolver.getDefinitions();

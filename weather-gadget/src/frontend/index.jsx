@@ -12,6 +12,12 @@ import ForgeReconciler, {
   useForm,
   RadioGroup,
   ErrorMessage,
+  Box,
+  Inline,
+  xcss,
+  Heading,
+  Strong,
+  Image
 } from "@forge/react";
 import { invoke, view } from "@forge/bridge";
 
@@ -75,26 +81,30 @@ export const Edit = () => {
 };
 
 const View = () => {
-  const [data, setData] = useState(null);
+  const [weather, setWeather] = useState(null);
   const context = useProductContext();
 
   useEffect(() => {
-    invoke('getText', { example: 'my-invoke-variable' }).then(setData);
+    invoke('getCurrentWeather').then(setWeather);
   }, []);
 
-  if (!context) {
-    return "Loading...";
-  }
-  const {
-    extension: { gadgetConfiguration },
-  } = context;
+  const containerStyle = xcss({
+    padding: 'space.200'
+  });
 
   return (
     <>
-      <Text>City: {gadgetConfiguration["name"] ? gadgetConfiguration["name"] : "Edit me"}</Text>
-      <Text>Country: {gadgetConfiguration["country"] ? gadgetConfiguration["country"] : "Edit me"}</Text>
-      <Text>Lon: {gadgetConfiguration["lon"] ? gadgetConfiguration["lon"] : "Edit me"}</Text>
-      <Text>Lat: {gadgetConfiguration["lat"] ? gadgetConfiguration["lat"] : "Edit me"}</Text>
+      <Heading as="h2">{weather ? weather.name : 'Loading...'} Weather</Heading>
+      <Box xcss={containerStyle}>
+        <Inline>
+          <Image src={weather ? (`https://openweathermap.org/img/wn/${weather.weather[0].icon}@2x.png`) : "https://openweathermap.org/img/wn/01d@2x.png"} alt={weather ? weather.weather[0].description : "Loading"} />
+          <Box>
+            <Text><Strong>Current Temperature</Strong> {weather ? weather.main.temp : '[ ]'} °C</Text>
+            <Text><Strong>Feels like:</Strong> {weather ? weather.main.feels_like : '[ ]'} °C</Text>
+            <Text><Strong>Humidity:</Strong> {weather ? weather.main.humidity : '[ ]'}%</Text>
+          </Box>
+        </Inline>
+      </Box>
     </>
   );
 };
