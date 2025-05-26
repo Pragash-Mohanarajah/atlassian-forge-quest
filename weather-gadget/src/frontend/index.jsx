@@ -330,9 +330,17 @@ const View = () => {
             {processedDailyForecast.map((dayFc, index) => (
               <Box key={index} xcss={forecastItemStyle}>
                 <Text><Strong>{dayFc.date}</Strong></Text>
-                <Image src={`https://openweathermap.org/img/wn/${dayFc.icon}.png`} alt={dayFc.description} />
-                <Text>{dayFc.temp.toFixed(1)} {dayFc.units === 'imperial' ? '°F' : '°C'}</Text>
-                <Text xcss={{ fontSize: 'font.size.075', color: 'color.text.subtle' }}>{dayFc.description}</Text>
+                <Inline alignBlock="center" space="space.200">
+                  <Image src={`https://openweathermap.org/img/wn/${dayFc.icon}.png`} alt={dayFc.description} />
+                  <Box>
+                    <Text>
+                      <Strong>Forecast Temperature:</Strong> {dayFc.temp.toFixed(1)} {dayFc.units === 'imperial' ? '°F' : '°C'}
+                    </Text>
+                    <Text xcss={{ fontSize: 'font.size.075', color: 'color.text.subtle' }}>
+                      <Strong>Description:</Strong> {dayFc.description}
+                    </Text>
+                  </Box>
+                </Inline>
               </Box>
             ))}
           </Box>
