@@ -1,4 +1,4 @@
-import React, {useEffect, useState, useRef} from "react";
+import React, {useEffect, useState, useRef, useMemo} from "react";
 import ForgeReconciler, {
   Text,
   useProductContext,
@@ -27,6 +27,35 @@ const formatLocationAsOption = (location, index) => ({
   label: `${location.name}, ${location.state}, ${location.country}`,
   value: String(index), // Ensure value is a string for RadioGroup compatibility
 });
+
+// Helper function to process raw forecast list into daily summaries
+const processForecastData = (forecastList, currentUnits) => {
+  if (!forecastList || forecastList.length === 0) {
+    return [];
+  }
+
+  const dailyData = [];
+  const seenDates = new Set(); // To ensure we only take one entry per day
+
+  for (const item of forecastList) {
+    const date = new Date(item.dt * 1000);
+    // Format date e.g., "Mon, Aug 29"
+    const dateString = date.toLocaleDateString(undefined, { weekday: 'short', month: 'short', day: 'numeric' });
+
+    if (!seenDates.has(dateString) && dailyData.length < 5) {
+      seenDates.add(dateString);
+      dailyData.push({
+        date: dateString,
+        temp: item.main.temp,
+        description: item.weather[0].description,
+        icon: item.weather[0].icon,
+        units: currentUnits, // Pass units for display consistency
+      });
+    }
+    if (dailyData.length >= 5) break; // Stop after 5 unique days
+  }
+  return dailyData;
+};
 
 export const Edit = () => {
   const { handleSubmit, register, getValues, formState } = useForm();
@@ -168,12 +197,14 @@ export const Edit = () => {
 };
 
 const View = () => {
-  const [weather, setWeather] = useState(null);
+  const [weatherData, setWeatherData] = useState(null); // Will hold { current: ..., forecast: ..., error: ... }
+  const [isLoading, setIsLoading] = useState(true);
   const [isConfigured, setIsConfigured] = useState(false);
   const [initialConfigName, setInitialConfigName] = useState('');
   const context = useProductContext();
 
   useEffect(() => {
+    setIsLoading(true);
     if (context && context.extension) {
       const config = context.extension.gadgetConfiguration;
       // Check if essential configuration properties exist
@@ -182,10 +213,22 @@ const View = () => {
         if (config.name) {
           setInitialConfigName(config.name); // Store city name from config
         }
-        invoke('getCurrentWeather').then(setWeather);
+        invoke('getWeatherData') // Call the new/updated backend function
+          .then(data => {
+            setWeatherData(data);
+            setIsLoading(false);
+          })
+          .catch(error => {
+            console.error("Error invoking getWeatherData:", error);
+            setWeatherData({ error: "Failed to load weather data." });
+            setIsLoading(false);
+          });
       } else {
         setIsConfigured(false);
+        setIsLoading(false);
       }
+    } else {
+      setIsLoading(false); // Context not yet available
     }
   }, [context]); // Rerun effect if context changes
 
@@ -202,7 +245,37 @@ const View = () => {
     gap: 'space.200', // For spacing between text and button
   });
 
-  if (!context) {
+  const forecastItemStyle = xcss({
+    border: '1px solid token("color.border", "#CCCCCC")',
+    borderRadius: 'border.radius.100', // Standard border radius
+    padding: 'space.100',
+    minWidth: '120px',
+    textAlign: 'center',
+    backgroundColor: 'color.background.input', // Slight background differentiation
+    flex: '1 0 120px', // Allow flex shrink and grow from a base of 120px
+  });
+
+  const forecastContainerStyle = xcss({
+    display: 'flex',
+    flexDirection: 'row',
+    gap: 'space.100',
+    overflowX: 'auto', // Horizontal scroll on smaller screens
+    paddingBottom: 'space.100', // For scrollbar visibility
+    marginTop: 'space.200',
+  });
+
+  // Process forecast data memoized
+  const processedDailyForecast = useMemo(() => {
+    if (weatherData && weatherData.forecast && weatherData.forecast.list) {
+      // Use units from current weather data if available, otherwise from config
+      const units = weatherData.current?.units || context?.extension?.gadgetConfiguration?.units;
+      return processForecastData(weatherData.forecast.list, units);
+    }
+    return [];
+  }, [weatherData, context]);
+
+
+  if (isLoading && !context) { // Initial loading before context is ready
     return <Text>Loading context...</Text>; // Handles case where context is not yet available
   }
 
@@ -214,26 +287,59 @@ const View = () => {
     );
   }
 
-  const headingText = weather ? weather.name : (initialConfigName || 'Loading...');
+  if (isLoading) {
+    return <Text>Loading weather data...</Text>;
+  }
+
+  if (weatherData && weatherData.error && (!weatherData.current && !weatherData.forecast)) {
+    return <Text>Error: {weatherData.error}</Text>;
+  }
+  
+  if (!weatherData || (!weatherData.current && !weatherData.forecast)) {
+    return <Text>Weather data is currently unavailable. Please try again later or reconfigure the gadget.</Text>;
+  }
+
+  const current = weatherData.current;
+  const headingText = current?.name || weatherData.forecast?.city?.name || initialConfigName || 'Weather';
+  const displayUnits = current?.units; // Units from current weather data
 
   return (
     <>
       <Heading as="h2">{headingText} Weather</Heading>
-      <Box xcss={containerStyle}>
-        <Inline>
-          <Image src={weather ? (`https://openweathermap.org/img/wn/${weather.weather[0].icon}@2x.png`) : "https://openweathermap.org/img/wn/01d@2x.png"} alt={weather ? weather.weather[0].description : "Loading"} />
-          <Box>
-            <Text>
-              <Strong>Current Temperature</Strong> {weather ? weather.main.temp : '[ ]'} {weather?.units === 'imperial' ? '°F' : '°C'}
-            </Text>
-            <Text>
-              <Strong>Feels like:</Strong> {weather ? weather.main.feels_like : '[ ]'} {weather?.units === 'imperial' ? '°F' : '°C'}
-            </Text>
-            <Text><Strong>Humidity:</Strong> {weather ? weather.main.humidity : '[ ]'}%</Text>
+      {current && (
+        <Box xcss={containerStyle}>
+          <Inline alignBlock="center" space="space.200">
+            <Image src={`https://openweathermap.org/img/wn/${current.weather[0].icon}@2x.png`} alt={current.weather[0].description} />
+            <Box>
+              <Text>
+                <Strong>Current Temperature:</Strong> {current.main.temp.toFixed(1)} {displayUnits === 'imperial' ? '°F' : '°C'}
+              </Text>
+              <Text>
+                <Strong>Feels like:</Strong> {current.main.feels_like.toFixed(1)} {displayUnits === 'imperial' ? '°F' : '°C'}
+              </Text>
+              <Text><Strong>Humidity:</Strong> {current.main.humidity}%</Text>
+              {weatherData.error && !current && <Text xcss={{color: 'color.text.danger'}}>{weatherData.error}</Text>}
+            </Box>
+          </Inline>
+        </Box>
+      )}
+      {processedDailyForecast.length > 0 && (
+        <Box xcss={{ marginTop: 'space.300' }}>
+          <Heading as="h3">5-Day Forecast</Heading>
+          <Box xcss={forecastContainerStyle}>
+            {processedDailyForecast.map((dayFc, index) => (
+              <Box key={index} xcss={forecastItemStyle}>
+                <Text><Strong>{dayFc.date}</Strong></Text>
+                <Image src={`https://openweathermap.org/img/wn/${dayFc.icon}.png`} alt={dayFc.description} />
+                <Text>{dayFc.temp.toFixed(1)} {dayFc.units === 'imperial' ? '°F' : '°C'}</Text>
+                <Text xcss={{ fontSize: 'font.size.075', color: 'color.text.subtle' }}>{dayFc.description}</Text>
+              </Box>
+            ))}
           </Box>
-        </Inline>
-      </Box>
-    </>
+        </Box>
+      )}
+      {weatherData.error && !weatherData.forecast && processedDailyForecast.length === 0 && <Text xcss={{color: 'color.text.danger', marginTop: 'space.100'}}>{weatherData.error}</Text>}
+     </>
   );
 };
 
